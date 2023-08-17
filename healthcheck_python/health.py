@@ -24,27 +24,29 @@ from typing import Dict, List, Callable
 logger = logging.getLogger(__name__)
 
 
-def add_check(function: Callable) -> None:
-	"""
-	Add a health check function to the list of health check functions
-	:param function: a function that returns a dictionary with the health check results
-	"""
-	CHECKS.append(function)
-
-
-def set_timeout(timeout: int, caller: str = None) -> None:
+def init_check(timeout: int, caller: str = None) -> None:
 	"""
 	Set the timeout for the periodic call to the healthcheck function
 	:param timeout: timeout in seconds
 	:param caller: Optional name of the caller. If not provided, the name of the class is used
 	"""
-	if not THREAD.is_alive():
-		stack = inspect.stack()
-		if caller is None:
+	global THREAD
+	stack = inspect.stack()
+	if caller is None:
+		if stack[1][0].f_locals.get("self") is None:
+			caller = stack[1][0].f_locals['__name__']
+		else:
 			caller = stack[1][0].f_locals["self"].__class__.__name__
-		THREAD.prefix = caller
-		THREAD.timeout = timeout
-		THREAD.start()
+	THREAD = HealthCheck(interval=RUN_PERIOD, prefix=caller, timeout=timeout)
+	THREAD.start()
+
+
+def add_check(function: Callable) -> None:
+	"""
+	Add a health check function to the list of health check functions
+	:param function: a function that returns a dictionary with the health check results
+	"""
+	THREAD.add_check(function)
 
 
 def healthy():
@@ -93,14 +95,15 @@ class HealthCheck(threading.Timer):
 	Health check timer function. Runs every interval seconds and calls the health check functions
 	"""
 
-	def __init__(self, interval: int, prefix="", args=None, kwargs=None):
+	def __init__(self, interval: int, prefix: str = "", timeout: int = 0, args=None, kwargs=None):
 		super().__init__(interval, self.run, args, kwargs)
 		self._stop_event = threading.Event()
 		self.prefix: str = prefix
 		self.daemon = True
-		self.timeout: int = 0
+		self.timeout: int = timeout
 		self._latest_checkin = 0
 		self._liveness: bool = False
+		self._checks = []
 
 		self._dump_dir = os.environ.get('PY_HEALTH_MULTIPROC_DIR', None)
 		if self._dump_dir:
@@ -110,6 +113,13 @@ class HealthCheck(threading.Timer):
 
 			if not os.path.isdir(self._dump_dir):
 				self._dump_dir = None
+
+	def add_check(self, function: Callable) -> None:
+		"""
+		Add a health check function to the list of health check functions
+		:param function: a function that returns a dictionary with the health check results
+		"""
+		self._checks.append(function)
 
 	def stop(self):
 		"""
@@ -138,7 +148,7 @@ class HealthCheck(threading.Timer):
 		"""
 		results = []
 		# check registered health check functions
-		for check in CHECKS:
+		for check in self._checks:
 			results.append(self.run_check(check))
 
 		# periodic checkin is only checked if timeout is set
@@ -164,7 +174,7 @@ class HealthCheck(threading.Timer):
 		try:
 			passed, output = check()
 		except Exception as exc:
-			logger.exception(exc)
+			logger.warning(exc)
 			passed, output = False, str(exc)
 
 		end_time = time.time()
@@ -193,7 +203,7 @@ class HealthCheck(threading.Timer):
 		Check if the periodic checkin is within the timeout
 		"""
 		periodic_check = {
-			'checker': self.prefix,
+			'checker': self.prefix + '-periodic-checkin',
 			'output': '',
 			'passed': False,
 			'timestamp': time.time(),
@@ -217,4 +227,4 @@ class HealthCheck(threading.Timer):
 CHECKS = []
 
 RUN_PERIOD = os.environ.get('PY_HEALTH_RUN_PERIOD', 5)
-THREAD = HealthCheck(RUN_PERIOD)
+THREAD = None

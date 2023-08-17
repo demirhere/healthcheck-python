@@ -1,2 +1,5 @@
 [FORMAT]
 indent-string=\t
+
+[MESSAGES CONTROL]
+disable=W0603,W1514
