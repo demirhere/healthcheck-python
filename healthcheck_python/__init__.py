@@ -12,7 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from healthcheck_python.health import add_check, healthy, live, init_check
+from healthcheck_python.health import add_check, healthy, live, init_check, create_health_check
 from healthcheck_python.server import start_http_server
 
-__all__ = ['add_check', 'healthy', 'live', 'init_check', 'start_http_server']
+__all__ = ['add_check', 'healthy', 'live', 'init_check', 'start_http_server', 'create_health_check']

@@ -19,52 +19,14 @@ import os
 import threading
 import time
 from functools import reduce
-from typing import Dict, List, Callable
+from typing import Dict, List, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
-
-def init_check(timeout: int, caller: str = None) -> None:
-	"""
-	Set the timeout for the periodic call to the healthcheck function
-	:param timeout: timeout in seconds
-	:param caller: Optional name of the caller. If not provided, the name of the class is used
-	"""
-	global THREAD
-	stack = inspect.stack()
-	if caller is None:
-		if stack[1][0].f_locals.get("self") is None:
-			caller = stack[1][0].f_locals['__name__']
-		else:
-			caller = stack[1][0].f_locals["self"].__class__.__name__
-	THREAD = HealthCheck(interval=RUN_PERIOD, prefix=caller, timeout=timeout)
-	THREAD.start()
+RUN_PERIOD = os.environ.get('PY_HEALTH_RUN_PERIOD', 5)
 
 
-def add_check(function: Callable) -> None:
-	"""
-	Add a health check function to the list of health check functions
-	:param function: a function that returns a dictionary with the health check results
-	"""
-	THREAD.add_check(function)
-
-
-def healthy():
-	"""
-	Mark the service as healthy
-	This function has to be called periodically to mark the service as healthy
-	"""
-	THREAD.check_in()
-
-
-def live():
-	"""
-	Mark the service as live
-	"""
-	THREAD.live()
-
-
-def json_output_handler(results: List, passed: bool, liveness: bool) -> Dict:
+def json_output_handler(prefix: str, results: List, passed: bool, liveness: bool, timeout: int) -> Dict:
 	"""
 	Create a json output for individual health check process
 	:param results: The output of the health check function
@@ -73,11 +35,11 @@ def json_output_handler(results: List, passed: bool, liveness: bool) -> Dict:
 	:return: json output
 	"""
 	data = {
-		'name': THREAD.prefix,
+		'name': prefix,
 		'status': passed,
 		'liveness': liveness,
 		'timestamp': time.time(),
-		'timeout': THREAD.timeout,
+		'timeout': timeout,
 		'results': results,
 	}
 	return data
@@ -95,7 +57,7 @@ class HealthCheck(threading.Timer):
 	Health check timer function. Runs every interval seconds and calls the health check functions
 	"""
 
-	def __init__(self, interval: int, prefix: str = "", timeout: int = 0, args=None, kwargs=None):
+	def __init__(self, prefix: str, interval: int = RUN_PERIOD, timeout: int = 0, args=None, kwargs=None):
 		super().__init__(interval, self.run, args, kwargs)
 		self._stop_event = threading.Event()
 		self.prefix: str = prefix
@@ -127,7 +89,7 @@ class HealthCheck(threading.Timer):
 		"""
 		self._stop_event.set()
 
-	def check_in(self):
+	def healthy(self):
 		"""
 		Check in
 		"""
@@ -157,10 +119,15 @@ class HealthCheck(threading.Timer):
 			results.append(periodic_checkin)
 
 		passed = reduce(check_reduce, results, True)
-		message = json_output_handler(results, passed, self._liveness)
+		message = json_output_handler(
+			prefix=self.prefix,
+			results=results, passed=passed,
+			liveness=self._liveness,
+			timeout=self.timeout
+		)
 
 		# dump to file for collection
-		with open(os.path.join(self._dump_dir, f"{os.getpid()}.json"), "w") as json_file:
+		with open(os.path.join(self._dump_dir, f"{os.getpid()}-{self.prefix}.json"), "w") as json_file:
 			json.dump(message, json_file)
 
 	def run_check(self, check: Callable) -> Dict:
@@ -224,7 +191,56 @@ class HealthCheck(threading.Timer):
 		self._liveness = True
 
 
-CHECKS = []
+THREAD: Optional[HealthCheck] = None
 
-RUN_PERIOD = os.environ.get('PY_HEALTH_RUN_PERIOD', 5)
-THREAD = None
+
+def create_health_check(caller: str = None, timeout: int = 0) -> HealthCheck:
+	"""
+	Create a health check object
+	:param caller: Optional name of the caller. If not provided, the name of the class is used
+	:param timeout: timeout in seconds
+	:return: HealthCheck object
+	"""
+	stack = inspect.stack()
+	if caller is None:
+		if stack[2][0].f_locals.get(
+				"self") is None:  # 2 because 0 is this function, 1 is init_check and 2 is the caller
+			caller = stack[2][0].f_locals['__name__']
+		else:
+			caller = stack[2][0].f_locals["self"].__class__.__name__
+	check = HealthCheck(prefix=caller, interval=RUN_PERIOD, timeout=timeout)
+	return check
+
+
+def init_check(caller: str = None, timeout: int = 0) -> None:
+	"""
+	Set the timeout for the periodic call to the healthcheck function
+	:param timeout: timeout in seconds
+	:param caller: Optional name of the caller. If not provided, the name of the class is used
+	"""
+	global THREAD
+	THREAD = create_health_check(caller=caller, timeout=timeout)
+	THREAD.start()
+
+
+def add_check(function: Callable) -> None:
+	"""
+	Add a health check function to the list of health check functions
+	:param function: a function that returns a dictionary with the health check results
+	"""
+	THREAD.add_check(function)
+
+
+def healthy():
+	"""
+	Mark the service as healthy
+	This function has to be called periodically to mark the service as healthy
+	"""
+	THREAD.healthy()
+
+
+def live():
+	"""
+	Mark the service as live
+	"""
+	THREAD.live()
