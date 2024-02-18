@@ -20,3 +20,7 @@ python = ">=3.8"
 
 [tool.poetry.scripts]
 set-version = "scripts.poetry_utils:set_version"
+
+[tool.poetry.group.dev.dependencies]
+toml = "^0.10.2"
+
