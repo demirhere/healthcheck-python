@@ -180,8 +180,15 @@ class HealthCheck(threading.Timer):
 		time_diff = time.time() - self._latest_checkin
 		if time_diff > self.timeout:
 			periodic_check['passed'] = False
+			logger.error(
+				"Health check %s.%s failed with time diff %f",
+				self.prefix,
+				periodic_check['checker'],
+				time_diff
+			)
 		else:
 			periodic_check['passed'] = True
+			logger.debug("Health check %s.%s passed", self.prefix, periodic_check['checker'])
 		return periodic_check
 
 	def live(self) -> None:
