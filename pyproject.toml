@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "healthcheck-python"
-version = "1.2.0"
+version = "1.2.1"
 description = "Health Check API for multiprocessing python apps"
 authors = [ "Ouva LLC. <hello@ouva.co>",]
 maintainers = [ "Cagdas Bas <cagdas@ouva.co>",]
@@ -23,4 +23,3 @@ set-version = "scripts.poetry_utils:set_version"
 
 [tool.poetry.group.dev.dependencies]
 toml = "^0.10.2"
-
